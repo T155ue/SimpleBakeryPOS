@@ -1,346 +1,399 @@
-; bakery.asm with menu loop
+.MODEL SMALL
+.STACK 100h
 
-section .data
-    ; Login banner and messages
-    loginBanner  db "==== Bakery POS Login ====", 0xA, 0
-    userPrompt   db "Enter username: ", 0
-    passPrompt   db "Enter password: ", 0
-    loginSuccess db 0xA, "Login successful!", 0xA, 0
-    loginFail    db 0xA, "Invalid credentials. Access denied.", 0xA, 0
+.DATA
+loginBanner      db 13, 10, '==== Bakery POS Login ====$'
+userPrompt       db 13, 10, 'Enter username: $'
+passPrompt       db 13, 10, 'Enter password: $'
+loginSuccess     db 13, 10, 'Login successful!', 13, 10, '$'
+loginFail        db 13, 10, 'Invalid credentials. Access denied.', 13, 10, '$'
 
-    ; Stored credentialsa
-    correctUser db "Tester", 0
-    correctPass db "1234", 0
+correctUser      db "Tester", 0
+correctPass      db "1234", 0
 
-    ; Main interface menu
-    mainMenu db 0xA, "===    Bakery POS    ===", 0xA, \
-                 "1. View Inventory", 0xA, \
-                 "2. Make Sale", 0xA, \
-                 "3. View Reports", 0xA, \
-                 "4. Restock", 0xA, \
-                 "5. Exit", 0xA, 0
+userInputStruct  db 16, ?, 16 dup(0)
+passInputStruct  db 16, ?, 16 dup(0)
 
-    ; Inventory - bread names
-    bread1 db "1. Garlic Bread     - RM3 - Qty: ", 0
-    bread2 db "2. Chocolate Roll   - RM4 - Qty: ", 0
-    bread3 db "3. Butter Bun       - RM2 - Qty: ", 0
-    bread4 db "4. Cheese Loaf      - RM5 - Qty: ", 0
+; Inventory data
+bread1Name db 13, 10, '1. Garlic Bread     - RM3 - Qty: $'
+bread2Name db 13, 10, '2. Chocolate Roll   - RM4 - Qty: $'
+bread3Name db 13, 10, '3. Butter Bun       - RM2 - Qty: $'
+bread4Name db 13, 10, '4. Cheese Loaf      - RM5 - Qty: $'
 
-    ; Price table and stock
-    breadPrices db 3, 4, 2, 5
-    breadQuantities db 10, 8, 12, 5
+breadQuantities db 10, 8, 12, 5   ; stock values
+breadPrices db 3, 4, 2, 5         ; price per bread
+qtyBuffer db '00', 13, 10, '$'    ; used for printing quantity
 
-    qtyBuffer db "00", 0xA, 0
-    menuPrompt db 0xA, "Enter option: ", 0x20, 0
-    newline db 0xA
-    pauseMsg db 0xA, 0
-    backMsg db 0xA, "Press Enter to return to main menu...", 0
+; Menu and input
+mainMenu db 13, 10, '===    Bakery POS    ===', 13, 10
+         db '1. View Inventory', 13, 10
+         db '2. Make Sale', 13, 10
+         db '3. View Reports', 13, 10
+         db '4. Restock Breads', 13, 10
+         db '5. Exit', 13, 10, '$'
 
-    ; Restock prompts
-    restockPrompt db 0xA, "Enter Bread ID to restock (1-4): ", 0
-    qtyPrompt db "Enter quantity to add (2 digits): ", 0
-    restockSuccess db 0xA, "Stock successfully updated!", 0xA, 0
-    overflowMsg db "Error: stock exceeds limit (255)", 0xA, 0
+menuPrompt db 13, 10, 'Enter option: $'
+menuInput  db ?
 
-section .bss
-    userInput resb 16
-    passInput resb 16
-    menuInput resb 2
-    breadIDInput resb 2
-    restockQtyInput resb 3
-    dummyInput resb 2
+; Pause prompt
+backPrompt db 13, 10, 'Press Enter to return to main menu...$'
+dummyBuffer db 2, ?, 2 dup(0)
 
-section .text
-    global _start
+; Restock prompts
+restockIDPrompt   db 13, 10, 'Enter Bread ID to restock (1-4): $'
+restockQtyPrompt  db 13, 10, 'Enter quantity to add (1-99): $'
+restockSuccessMsg db 13, 10, 'Stock successfully updated!', 13, 10, '$'
+invalidMsg        db 13, 10, 'Invalid input. Returning to menu...', 13, 10, '$'
 
-_start:
-    ; Print login banner
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, loginBanner
-    mov edx, 27
-    int 0x80
+breadIDInput      db 2, ?, 2 dup(0)
+restockQtyInput   db 3, ?, 3 dup(0)
 
-    ; Username
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, userPrompt
-    mov edx, 17
-    int 0x80
+; Sale prompts
+saleIDPrompt      db 13, 10, 'Enter Bread ID to purchase (1-4): $'
+saleQtyPrompt     db 'Enter quantity to buy: $'
+saleResultMsg     db 13, 10, 'Total Sale = RM$'
+saleTotalBuffer   db '00', '$'
+saleDonePrompt    db 13, 10, 'Transaction complete!', 13, 10, '$'
 
-    mov eax, 3
-    mov ebx, 0
-    mov ecx, userInput
-    mov edx, 16
-    int 0x80
-    call strip_newline_user
+saleQtyTotals     db 0, 0, 0, 0  ; Total quantity per bread for current sale
 
-    ; Password
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, passPrompt
-    mov edx, 17
-    int 0x80
+.CODE
+MAIN:
+    mov ax, @DATA
+    mov ds, ax
 
-    mov eax, 3
-    mov ebx, 0
-    mov ecx, passInput
-    mov edx, 16
-    int 0x80
-    call strip_newline_pass
+    ; === Login ===
+    mov ah, 09h
+    lea dx, loginBanner
+    int 21h
 
-    ; Validate
-    mov esi, userInput
-    mov edi, correctUser
-    call strcmp
-    cmp eax, 0
-    jne login_failed
+    mov ah, 09h
+    lea dx, userPrompt
+    int 21h
 
-    mov esi, passInput
-    mov edi, correctPass
-    call strcmp
-    cmp eax, 0
-    jne login_failed
+    lea dx, userInputStruct
+    mov ah, 0Ah
+    int 21h
 
-login_success:
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, loginSuccess
-    mov edx, 21
-    int 0x80
+    mov ah, 09h
+    lea dx, passPrompt
+    int 21h
 
-main_menu:
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, mainMenu
-    mov edx, 102
-    int 0x80
+    lea dx, passInputStruct
+    mov ah, 0Ah
+    int 21h
 
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, menuPrompt
-    mov edx, 16
-    int 0x80
+    lea si, userInputStruct + 2
+    call strip_cr
+    lea di, correctUser
+    call strcmp_nullterm
+    jnz LOGIN_FAIL
 
-    mov eax, 3
-    mov ebx, 0
-    mov ecx, menuInput
-    mov edx, 2
-    int 0x80
+    lea si, passInputStruct + 2
+    call strip_cr
+    lea di, correctPass
+    call strcmp_nullterm
+    jnz LOGIN_FAIL
 
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, newline
-    mov edx, 1
-    int 0x80
+    mov ah, 09h
+    lea dx, loginSuccess
+    int 21h
+    jmp SHOW_MENU
 
-    cmp byte [menuInput], '1'
-    je view_inventory
+LOGIN_FAIL:
+    mov ah, 09h
+    lea dx, loginFail
+    int 21h
+    jmp EXIT
 
-    cmp byte [menuInput], '4'
-    je restock
+; === MAIN MENU ===
+SHOW_MENU:
+    mov ah, 09h
+    lea dx, mainMenu
+    int 21h
 
-    cmp byte [menuInput], '5'
-    je exit_program
+    mov ah, 09h
+    lea dx, menuPrompt
+    int 21h
 
-    jmp main_menu
+    mov ah, 01h
+    int 21h
+    sub al, '0'
+    mov menuInput, al
 
-login_failed:
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, loginFail
-    mov edx, 39
-    int 0x80
+    ; Add spacing after input
+    mov ah, 02h
+    mov dl, 13
+    int 21h
+    mov dl, 10
+    int 21h
 
-exit_program:
-    mov eax, 1
-    xor ebx, ebx
-    int 0x80
+    cmp menuInput, 1
+    jne check_option_2
+    jmp SHOW_INVENTORY
 
-; === Utilities ===
+check_option_2:
+    cmp menuInput, 2
+    jne check_option_4
+    jmp make_sale
 
-strip_newline_user:
-    mov ecx, userInput
-.find_nl_user:
-    mov al, [ecx]
-    cmp al, 0xA
-    je .replace
+check_option_4:
+    cmp menuInput, 4
+    jne check_option_5
+    jmp restock_bread
+
+check_option_5:
+    cmp menuInput, 5
+    jne invalid_option
+    jmp EXIT
+
+invalid_option:
+    jmp SHOW_MENU
+
+; === VIEW INVENTORY ===
+SHOW_INVENTORY:
+    mov ah, 09h
+    lea dx, bread1Name
+    int 21h
+    mov al, breadQuantities
+    call print_quantity
+
+    mov ah, 09h
+    lea dx, bread2Name
+    int 21h
+    mov al, breadQuantities + 1
+    call print_quantity
+
+    mov ah, 09h
+    lea dx, bread3Name
+    int 21h
+    mov al, breadQuantities + 2
+    call print_quantity
+
+    mov ah, 09h
+    lea dx, bread4Name
+    int 21h
+    mov al, breadQuantities + 3
+    call print_quantity
+
+    call wait_for_enter
+    jmp SHOW_MENU
+
+; === MAKE SALE ===
+make_sale:
+    xor cx, cx ; total cost
+    xor bx, bx ; bread loop
+
+    ; Prompt for bread ID
+    mov ah, 09h
+    lea dx, saleIDPrompt
+    int 21h
+    lea dx, breadIDInput
+    mov ah, 0Ah
+    int 21h
+
+    ; Add newline before showing quantity prompt
+    mov ah, 02h
+    mov dl, 13
+    int 21h
+    mov dl, 10
+    int 21h
+
+    ; Prompt for quantity
+    lea dx, saleQtyPrompt
+    mov ah, 09h
+    int 21h
+
+    lea dx, restockQtyInput
+    mov ah, 0Ah
+    int 21h
+
+    ; Get bread index AFTER both inputs
+    mov al, breadIDInput + 2
+    sub al, '1'
+    cmp al, 3
+    ja invalid_option
+    mov si, offset saleQtyTotals
+    add si, ax
+
+    ; Convert ASCII quantity input to numeric
+    mov al, restockQtyInput + 2
+    sub al, '0'
+    mov ah, 0
+    mov cl, 10
+    mul cl
+    mov dl, restockQtyInput + 3
+    sub dl, '0'
+    add al, dl
+    add [si], al
+
+    ; === Only 1 transaction, so directly calculate ===
+    xor cx, cx
+    mov si, 0
+
+calc_loop:
+    mov al, saleQtyTotals[si]
+    mov ah, 0
+    mov bl, breadPrices[si]
+    mul bl
+    add cx, ax
+
+    ; decrease from inventory
+    mov al, breadQuantities[si]
+    sub al, saleQtyTotals[si]
+    mov breadQuantities[si], al
+
+    inc si
+    cmp si, 4
+    jl calc_loop
+
+    ; Convert CX to ASCII for display
+    mov ax, cx
+    mov bx, 10
+    xor dx, dx
+    div bx
+    add al, '0'
+    mov saleTotalBuffer, al
+    add dl, '0'
+    mov saleTotalBuffer + 1, dl
+
+    mov ah, 09h
+    lea dx, saleResultMsg
+    int 21h
+    lea dx, saleTotalBuffer
+    int 21h
+
+    mov ah, 09h
+    lea dx, saleDonePrompt
+    int 21h
+
+    call wait_for_enter
+    jmp SHOW_MENU
+
+; === RESTOCK BREAD ===
+restock_bread:
+    mov ah, 09h
+    lea dx, restockIDPrompt
+    int 21h
+
+    lea dx, breadIDInput
+    mov ah, 0Ah
+    int 21h
+
+    mov al, breadIDInput + 2
+    sub al, '1'
+    cmp al, 3
+    ja invalid_input
+    mov bl, al
+
+    mov ah, 09h
+    lea dx, restockQtyPrompt
+    int 21h
+
+    lea dx, restockQtyInput
+    mov ah, 0Ah
+    int 21h
+
+    mov al, restockQtyInput + 2
+    sub al, '0'
+    mov ah, 0
+    mov cl, 10
+    mul cl
+    mov dl, restockQtyInput + 3
+    sub dl, '0'
+    add al, dl
+
+    mov si, offset breadQuantities
+    add si, bx
+    add [si], al
+
+    mov ah, 09h
+    lea dx, restockSuccessMsg
+    int 21h
+
+    call wait_for_enter
+    jmp SHOW_MENU
+
+invalid_input:
+    mov ah, 09h
+    lea dx, invalidMsg
+    int 21h
+    call wait_for_enter
+    jmp SHOW_MENU
+
+EXIT:
+    mov ah, 4Ch
+    int 21h
+
+; === Print quantity in AL as 2-digit ASCII ===
+print_quantity:
+    mov ah, 0
+    mov bl, 10
+    div bl           ; AL = tens, AH = ones
+    add al, '0'
+    mov qtyBuffer, al
+    add ah, '0'
+    mov qtyBuffer + 1, ah
+    mov ah, 09h
+    lea dx, qtyBuffer
+    int 21h
+    ret
+
+; === Wait for Enter key ===
+wait_for_enter:
+    mov ah, 09h
+    lea dx, backPrompt
+    int 21h
+
+    lea dx, dummyBuffer
+    mov ah, 0Ah
+    int 21h
+
+    ; Add newline before returning
+    mov ah, 02h
+    mov dl, 13
+    int 21h
+    mov dl, 10
+    int 21h
+    ret
+
+; === Strip CR from input buffer ===
+strip_cr:
+    mov cx, 0
+.next:
+    mov bx, si
+    add bx, cx
+    mov al, [bx]
+    cmp al, 0Dh
+    je .strip
     cmp al, 0
     je .done
-    inc ecx
-    jmp .find_nl_user
-.replace:
-    mov byte [ecx], 0
+    inc cx
+    jmp .next
+.strip:
+    mov bx, si
+    add bx, cx
+    mov byte ptr [bx], 0
 .done:
     ret
 
-strip_newline_pass:
-    mov ecx, passInput
-.find_nl_pass:
-    mov al, [ecx]
-    cmp al, 0xA
-    je .replace
-    cmp al, 0
-    je .done
-    inc ecx
-    jmp .find_nl_pass
-.replace:
-    mov byte [ecx], 0
-.done:
-    ret
-
-strcmp:
-    xor eax, eax
-.next_char:
-    mov al, [esi]
-    cmp al, [edi]
-    jne .not_equal
+; === Null-Terminated String Compare ===
+strcmp_nullterm:
+.loop:
+    mov al, [si]
+    mov bl, [di]
+    cmp al, bl
+    jne .notequal
     cmp al, 0
     je .equal
-    inc esi
-    inc edi
-    jmp .next_char
-.not_equal:
-    mov eax, 1
+    inc si
+    inc di
+    jmp .loop
+.notequal:
+    mov ax, 1
     ret
 .equal:
-    xor eax, eax
+    xor ax, ax
     ret
 
-wait_for_enter:
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, backMsg
-    mov edx, 36
-    int 0x80
-
-    mov eax, 3
-    mov ebx, 0
-    mov ecx, dummyInput
-    mov edx, 2
-    int 0x80
-    ret
-
-; === View Inventory ===
-view_inventory:
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, bread1
-    mov edx, 34
-    int 0x80
-    movzx esi, byte [breadQuantities]
-    call print_quantity
-
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, bread2
-    mov edx, 34
-    int 0x80
-    movzx esi, byte [breadQuantities + 1]
-    call print_quantity
-
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, bread3
-    mov edx, 34
-    int 0x80
-    movzx esi, byte [breadQuantities + 2]
-    call print_quantity
-
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, bread4
-    mov edx, 34
-    int 0x80
-    movzx esi, byte [breadQuantities + 3]
-    call print_quantity
-
-    call wait_for_enter
-    jmp main_menu
-
-; === Restock Feature ===
-restock:
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, restockPrompt
-    mov edx, 38
-    int 0x80
-
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, newline
-    mov edx, 1
-    int 0x80
-
-    mov eax, 3
-    mov ebx, 0
-    mov ecx, breadIDInput
-    mov edx, 2
-    int 0x80
-
-    movzx esi, byte [breadIDInput]
-    sub esi, '1'
-    cmp esi, 3
-    jae main_menu
-
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, qtyPrompt
-    mov edx, 33
-    int 0x80
-
-    mov eax, 3
-    mov ebx, 0
-    mov ecx, restockQtyInput
-    mov edx, 3
-    int 0x80
-
-    movzx eax, byte [restockQtyInput]
-    sub eax, '0'
-    movzx ebx, byte [restockQtyInput + 1]
-    sub ebx, '0'
-    mov ecx, 10
-    mul ecx
-    add eax, ebx
-
-    movzx edx, byte [breadQuantities + esi]
-    add edx, eax
-    cmp edx, 255
-    ja overflow_error
-    mov [breadQuantities + esi], dl
-
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, restockSuccess
-    mov edx, 26
-    int 0x80
-
-    call wait_for_enter
-    jmp main_menu
-
-overflow_error:
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, overflowMsg
-    mov edx, 31
-    int 0x80
-    call wait_for_enter
-    jmp main_menu
-
-; === Print 2-digit quantity in ESI ===
-print_quantity:
-    mov ecx, qtyBuffer
-    mov eax, esi
-    mov ebx, 10
-    xor edx, edx
-    div ebx
-    add al, '0'
-    mov [ecx], al
-    add dl, '0'
-    mov [ecx + 1], dl
-    mov eax, 4
-    mov ebx, 1
-    mov ecx, qtyBuffer
-    mov edx, 3
-    int 0x80
-    ret
+END MAIN

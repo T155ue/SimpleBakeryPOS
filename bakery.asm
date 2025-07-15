@@ -20,17 +20,16 @@ bread2Name db 13, 10, '2. Chocolate Roll   - RM4 - Qty: $'
 bread3Name db 13, 10, '3. Butter Bun       - RM2 - Qty: $'
 bread4Name db 13, 10, '4. Cheese Loaf      - RM5 - Qty: $'
 
-breadQuantities db 10, 8, 12, 5   ; stock values
-breadPrices db 3, 4, 2, 5         ; price per bread
-qtyBuffer db '00', 13, 10, '$'    ; used for printing quantity
+breadQuantities db 10, 8, 12, 5  
+breadPrices db 3, 4, 2, 5         
+qtyBuffer db '00', 13, 10, '$'   
 
 ; Menu and input
 mainMenu db 13, 10, '===    Bakery POS    ===', 13, 10
          db '1. View Inventory', 13, 10
-         db '2. Make Sale', 13, 10
-         db '3. View Reports', 13, 10
-         db '4. Restock Breads', 13, 10
-         db '5. Exit', 13, 10, '$'
+         db '2. Make Sale', 13, 10s
+         db '3. Restock Breads', 13, 10
+         db '4. Exit', 13, 10, '$'
 
 menuPrompt db 13, 10, 'Enter option: $'
 menuInput  db ?
@@ -55,14 +54,14 @@ saleResultMsg     db 13, 10, 'Total Sale = RM$'
 saleTotalBuffer   db '00', '$'
 saleDonePrompt    db 13, 10, 'Transaction complete!', 13, 10, '$'
 
-saleQtyTotals     db 0, 0, 0, 0  ; Total quantity per bread for current sale
+saleQtyTotals     db 0, 0, 0, 0  
 
 .CODE
 MAIN:
     mov ax, @DATA
     mov ds, ax
 
-    ; === Login ===
+    ; Login 
     mov ah, 09h
     lea dx, loginBanner
     int 21h
@@ -106,7 +105,7 @@ LOGIN_FAIL:
     int 21h
     jmp EXIT
 
-; === MAIN MENU ===
+; MAIN MENU
 SHOW_MENU:
     mov ah, 09h
     lea dx, mainMenu
@@ -121,7 +120,6 @@ SHOW_MENU:
     sub al, '0'
     mov menuInput, al
 
-    ; Add spacing after input
     mov ah, 02h
     mov dl, 13
     int 21h
@@ -134,23 +132,23 @@ SHOW_MENU:
 
 check_option_2:
     cmp menuInput, 2
-    jne check_option_4
+    jne check_option_3
     jmp make_sale
+
+check_option_3:
+    cmp menuInput, 3
+    jne check_option_4
+    jmp restock_bread
 
 check_option_4:
     cmp menuInput, 4
-    jne check_option_5
-    jmp restock_bread
-
-check_option_5:
-    cmp menuInput, 5
     jne invalid_option
     jmp EXIT
 
 invalid_option:
     jmp SHOW_MENU
 
-; === VIEW INVENTORY ===
+; VIEW INVENTORY
 SHOW_INVENTORY:
     mov ah, 09h
     lea dx, bread1Name
@@ -179,12 +177,18 @@ SHOW_INVENTORY:
     call wait_for_enter
     jmp SHOW_MENU
 
-; === MAKE SALE ===
+; MAKE SALE
 make_sale:
-    xor cx, cx ; total cost
-    xor bx, bx ; bread loop
+    ; Clear saleQtyTotals
+    mov cx, 4
+    mov si, offset saleQtyTotals
+clear_loop:
+    mov byte ptr [si], 0
+    inc si
+    loop clear_loop
 
-    ; Prompt for bread ID
+    xor cx, cx 
+
     mov ah, 09h
     lea dx, saleIDPrompt
     int 21h
@@ -192,7 +196,6 @@ make_sale:
     mov ah, 0Ah
     int 21h
 
-    ; Add newline before showing quantity prompt
     mov ah, 02h
     mov dl, 13
     int 21h
@@ -208,26 +211,27 @@ make_sale:
     mov ah, 0Ah
     int 21h
 
-    ; Get bread index AFTER both inputs
+    ; Get Bread Index 
     mov al, breadIDInput + 2
     sub al, '1'
     cmp al, 3
     ja invalid_option
+    mov bl, al 
+
+    ; Convert quantity using routine
+    call parse_quantity
+
+    ; Store in saleQtyTotals[BL]
     mov si, offset saleQtyTotals
-    add si, ax
+    add si, bx
+    mov [si], al
 
-    ; Convert ASCII quantity input to numeric
-    mov al, restockQtyInput + 2
-    sub al, '0'
-    mov ah, 0
-    mov cl, 10
-    mul cl
-    mov dl, restockQtyInput + 3
-    sub dl, '0'
-    add al, dl
-    add [si], al
+    ; Deduct quantity directly from inventory
+    mov si, offset breadQuantities
+    add si, bx
+    sub [si], al
 
-    ; === Only 1 transaction, so directly calculate ===
+    ; Calculate total
     xor cx, cx
     mov si, 0
 
@@ -238,19 +242,14 @@ calc_loop:
     mul bl
     add cx, ax
 
-    ; decrease from inventory
-    mov al, breadQuantities[si]
-    sub al, saleQtyTotals[si]
-    mov breadQuantities[si], al
-
     inc si
     cmp si, 4
     jl calc_loop
 
-    ; Convert CX to ASCII for display
+    ; Convert CX to ASCII and store in saleTotalBuffer as 2 digits
     mov ax, cx
-    mov bx, 10
     xor dx, dx
+    mov bx, 10
     div bx
     add al, '0'
     mov saleTotalBuffer, al
@@ -270,7 +269,7 @@ calc_loop:
     call wait_for_enter
     jmp SHOW_MENU
 
-; === RESTOCK BREAD ===
+; RESTOCK BREAD
 restock_bread:
     mov ah, 09h
     lea dx, restockIDPrompt
@@ -294,14 +293,7 @@ restock_bread:
     mov ah, 0Ah
     int 21h
 
-    mov al, restockQtyInput + 2
-    sub al, '0'
-    mov ah, 0
-    mov cl, 10
-    mul cl
-    mov dl, restockQtyInput + 3
-    sub dl, '0'
-    add al, dl
+    call parse_quantity
 
     mov si, offset breadQuantities
     add si, bx
@@ -325,11 +317,11 @@ EXIT:
     mov ah, 4Ch
     int 21h
 
-; === Print quantity in AL as 2-digit ASCII ===
+; Print quantity in AL as 2-digit ASCII 
 print_quantity:
     mov ah, 0
     mov bl, 10
-    div bl           ; AL = tens, AH = ones
+    div bl         
     add al, '0'
     mov qtyBuffer, al
     add ah, '0'
@@ -339,7 +331,7 @@ print_quantity:
     int 21h
     ret
 
-; === Wait for Enter key ===
+; Wait for Enter key
 wait_for_enter:
     mov ah, 09h
     lea dx, backPrompt
@@ -349,7 +341,6 @@ wait_for_enter:
     mov ah, 0Ah
     int 21h
 
-    ; Add newline before returning
     mov ah, 02h
     mov dl, 13
     int 21h
@@ -357,7 +348,29 @@ wait_for_enter:
     int 21h
     ret
 
-; === Strip CR from input buffer ===
+; Convert 1 or 2 digit quantity input in restockQtyInput to AL
+parse_quantity:
+    mov si, offset restockQtyInput
+    mov cl, [si+1]   
+    cmp cl, 1
+    je .one_digit
+
+    ; 2-digit input
+    mov ah, [si+2]
+    sub ah, '0'
+    mov al, 10
+    mul ah        
+    mov ah, [si+3]
+    sub ah, '0'
+    add al, ah
+    ret
+
+.one_digit:
+    mov al, [si+2]
+    sub al, '0'
+    ret
+
+;Strip CR from input buffer
 strip_cr:
     mov cx, 0
 .next:
@@ -377,7 +390,7 @@ strip_cr:
 .done:
     ret
 
-; === Null-Terminated String Compare ===
+;Null-Terminated String Compare
 strcmp_nullterm:
 .loop:
     mov al, [si]

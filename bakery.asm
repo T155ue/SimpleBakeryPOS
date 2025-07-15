@@ -27,7 +27,7 @@ qtyBuffer db '00', 13, 10, '$'
 ; Menu and input
 mainMenu db 13, 10, '===    Bakery POS    ===', 13, 10
          db '1. View Inventory', 13, 10
-         db '2. Make Sale', 13, 10s
+         db '2. Make Sale', 13, 10
          db '3. Restock Breads', 13, 10
          db '4. Exit', 13, 10, '$'
 

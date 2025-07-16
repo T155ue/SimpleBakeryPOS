@@ -22,14 +22,13 @@ B5Name          db 13,10, '5. Kaya Bun         - RM3 - Qty: $'
 B6Name          db 13,10, '6. Raisin Bread     - RM4 - Qty: $'
 B7Name          db 13,10, '7. Whole Wheat Loaf - RM5 - Qty: $'
 B8Name          db 13,10, '8. Mini Croissant   - RM2 - Qty: $'
-B9Name          db 13,10, '9. Cinnamon Twist   - RM4 - Qty: $'
-B10Name         db 13,10, '10. Brioche Bun     - RM6 - Qty: $'
 
-BreadNames      dw offset B1Name, offset B2Name, offset B3Name, offset B4Name, offset B5Name
-                dw offset B6Name, offset B7Name, offset B8Name, offset B9Name, offset B10Name
+BreadNames      dw offset B1Name, offset B2Name, offset B3Name, offset B4Name
+                dw offset B5Name, offset B6Name, offset B7Name, offset B8Name
 
-Stock           db 10, 8, 12, 5, 6, 9, 7, 4, 10, 3
-Price           db 3, 4, 2, 5, 3, 4, 5, 2, 4, 6
+Stock           db 10, 8, 12, 5, 6, 9, 7, 4
+Price           db 3, 4, 2, 5, 3, 4, 5, 2
+
 QtyBuf          db '00', 13, 10, '$'
 
 MenuText        db 13, 10, '===    Bakery POS    ===', 13, 10
@@ -44,7 +43,7 @@ MenuOpt         db ?
 Pause           db 13, 10, 'Press Enter to return to main menu...$'
 PauseBuf        db 2, ?, 2 dup(0)
 
-RestockIDMsg    db 13, 10, 'Enter Bread ID to restock (1-10): $'
+RestockIDMsg    db 13, 10, 'Enter Bread ID to restock (1-8): $'
 RestockQtyMsg   db 13, 10, 'Enter quantity to add (1-99): $'
 RestockOK       db 13, 10, 'Stock successfully updated!', 13, 10, '$'
 InvalidMsg      db 13, 10, 'Invalid input. Returning to menu...', 13, 10, '$'
@@ -52,13 +51,13 @@ InvalidMsg      db 13, 10, 'Invalid input. Returning to menu...', 13, 10, '$'
 BIDInput        db 2, ?, 2 dup(0)
 QtyInput        db 3, ?, 3 dup(0)
 
-SaleIDMsg       db 13, 10, 'Enter Bread ID to sale (1-10): $'
+SaleIDMsg       db 13, 10, 'Enter Bread ID to sale (1-8): $'
 SaleQtyMsg      db 'Enter quantity to sale: $'
 SaleTotalMsg    db 13, 10, 'Total Sale = RM$'
 SaleTotalBuf    db '00', '$'
 SaleDone        db 13, 10, 'Transaction complete!', 13, 10, '$'
 
-SaleQty         db 0,0,0,0,0,0,0,0,0,0
+SaleQty         db 0,0,0,0,0,0,0,0
 
 receiptFileName db 'receipt.txt', 0
 receiptHeader   db '--- Bakery Receipt ---', 13, 10, '$'
@@ -161,7 +160,7 @@ invalid_option:
     jmp SHOW_MENU
 
 SHOW_INVENTORY:
-    mov cx, 10
+    mov cx, 8
     mov si, offset BreadNames
     mov di, offset Stock
 
@@ -181,7 +180,7 @@ show_loop:
     jmp SHOW_MENU
 
 make_sale:
-    mov cx, 10
+    mov cx, 8
     mov si, offset SaleQty
 clear_loop:
     mov byte ptr [si], 0
@@ -240,7 +239,7 @@ calc_loop:
     add cx, ax
 
     inc si
-    cmp si, 10
+    cmp si, 8
     jl calc_loop
 
     mov ax, cx
@@ -277,7 +276,7 @@ restock_bread:
 
     mov al, BIDInput + 2
     sub al, '1'
-    cmp al, 9
+    cmp al, 7
     jna valid_id_restock
     jmp invalid_input
 valid_id_restock:

@@ -60,6 +60,16 @@ SaleDone        db 13, 10, 'Transaction complete!', 13, 10, '$'
 
 SaleQty         db 0,0,0,0,0,0,0,0,0,0
 
+receiptFileName db 'receipt.txt', 0
+receiptHeader   db '--- Bakery Receipt ---', 13, 10, '$'
+receiptItem     db 'Item: $'
+receiptTotal    db 13, 10, 'Total: RM$', '$'
+
+DigitBuf        db 0
+newline         db 13, 10
+qtyLabel        db 'Quantity: $'
+fileHandle      dw 0
+
 .CODE
 MAIN:
     mov ax, @DATA
@@ -206,6 +216,7 @@ clear_loop:
     cmp al, 9
     jna valid_id_sale
     jmp invalid_option
+
 valid_id_sale:
     mov bl, al
     call parse_quantity
@@ -251,6 +262,7 @@ calc_loop:
     lea dx, SaleDone
     int 21h
 
+    call create_receipt
     call wait_for_enter
     jmp SHOW_MENU
 
@@ -388,5 +400,99 @@ strcmp_nullterm:
 .equal:
     xor ax, ax
     ret
+    
+write_line:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+
+    mov si, dx
+    xor cx, cx
+.count_loop:
+    mov bx, cx
+    add bx, si
+    mov al, [bx]
+    cmp al, '$'
+    je .done_count
+    inc cx
+    jmp .count_loop
+.done_count:
+    mov dx, si
+    mov bx, fileHandle
+    mov ah, 40h
+    int 21h
+
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+create_receipt:
+    mov ah, 3Ch
+    mov cx, 0
+    lea dx, receiptFileName
+    int 21h
+    jc receipt_error
+    mov fileHandle, ax
+
+    lea dx, receiptHeader
+    call write_line
+
+    lea dx, receiptItem
+    call write_line
+
+    mov al, BIDInput + 2
+    sub al, '1'
+    mov bl, al
+    mov si, offset BreadNames
+    xor cl, cl
+get_name:
+    lodsw
+    cmp cl, bl
+    je write_bread
+    inc cl
+    jmp get_name
+write_bread:
+    mov dx, ax
+    call write_line
+
+    lea dx, qtyLabel
+    call write_line
+
+    mov bx, fileHandle
+    lea dx, QtyInput + 2
+    mov cx, 2
+    mov ah, 40h
+    int 21h
+
+    lea dx, newline
+    mov cx, 2
+    mov ah, 40h
+    int 21h
+
+    lea dx, receiptTotal
+    call write_line
+
+    lea dx, SaleTotalBuf
+    mov cx, 2
+    mov ah, 40h
+    int 21h
+
+    lea dx, newline
+    mov cx, 2
+    mov ah, 40h
+    int 21h
+
+    mov ah, 3Eh
+    mov bx, fileHandle
+    int 21h
+    ret
+
+receipt_error:
+    jmp EXIT
 
 END MAIN

@@ -12,7 +12,7 @@ CorrectUser     db "Tester", 0
 CorrectPass     db "1234", 0
 
 UserInput       db 16, ?, 16 dup(0)
-PassInput       db 16, ?, 16 dup(0)
+PassInput       db 16 dup(0)
 
 B1Name          db 13,10, '1. Garlic Bread     - RM3 - Qty: $'
 B2Name          db 13,10, '2. Chocolate Roll   - RM4 - Qty: $'
@@ -73,44 +73,34 @@ fileHandle      dw 0
 MAIN:
     mov ax, @DATA
     mov ds, ax
-
     mov ah, 09h
     lea dx, LoginBanner
     int 21h
-
     mov ah, 09h
     lea dx, User
     int 21h
-
     lea dx, UserInput
     mov ah, 0Ah
     int 21h
-
     mov ah, 09h
     lea dx, Pass
     int 21h
-
-    lea dx, PassInput
-    mov ah, 0Ah
-    int 21h
-
+    call read_password
     lea si, UserInput + 2
     call strip_cr
     lea di, CorrectUser
     call strcmp_nullterm
     jnz LOGIN_FAIL
-
-    lea si, PassInput + 2
+    lea si, PassInput
     call strip_cr
     lea di, CorrectPass
     call strcmp_nullterm
     jnz LOGIN_FAIL
-
     mov ah, 09h
     lea dx, LoginOK
     int 21h
     jmp SHOW_MENU
-
+    
 LOGIN_FAIL:
     mov ah, 09h
     lea dx, LoginFail
@@ -121,22 +111,18 @@ SHOW_MENU:
     mov ah, 09h
     lea dx, MenuText
     int 21h
-
     mov ah, 09h
     lea dx, Menu
     int 21h
-
     mov ah, 01h
     int 21h
     sub al, '0'
     mov MenuOpt, al
-
     mov ah, 02h
     mov dl, 13
     int 21h
     mov dl, 10
     int 21h
-
     cmp MenuOpt, 1
     jne check_option_2
     jmp SHOW_INVENTORY
@@ -182,34 +168,29 @@ show_loop:
 make_sale:
     mov cx, 8
     mov si, offset SaleQty
+    
 clear_loop:
     mov byte ptr [si], 0
     inc si
     loop clear_loop
-
     xor cx, cx
-
     mov ah, 09h
     lea dx, SaleIDMsg
     int 21h
     lea dx, BIDInput
     mov ah, 0Ah
     int 21h
-
     mov ah, 02h
     mov dl, 13
     int 21h
     mov dl, 10
     int 21h
-
     lea dx, SaleQtyMsg
     mov ah, 09h
     int 21h
-
     lea dx, QtyInput
     mov ah, 0Ah
     int 21h
-
     mov al, BIDInput + 2
     sub al, '1'
     cmp al, 9
@@ -219,15 +200,12 @@ clear_loop:
 valid_id_sale:
     mov bl, al
     call parse_quantity
-
     mov si, offset SaleQty
     add si, bx
     mov [si], al
-
     mov si, offset Stock
     add si, bx
     sub [si], al
-
     xor cx, cx
     mov si, 0
 
@@ -237,11 +215,9 @@ calc_loop:
     mov bl, Price[si]
     mul bl
     add cx, ax
-
     inc si
     cmp si, 8
     jl calc_loop
-
     mov ax, cx
     xor dx, dx
     mov bx, 10
@@ -250,17 +226,14 @@ calc_loop:
     mov SaleTotalBuf, al
     add dl, '0'
     mov SaleTotalBuf + 1, dl
-
     mov ah, 09h
     lea dx, SaleTotalMsg
     int 21h
     lea dx, SaleTotalBuf
     int 21h
-
     mov ah, 09h
     lea dx, SaleDone
     int 21h
-
     call create_receipt
     call wait_for_enter
     jmp SHOW_MENU
@@ -269,37 +242,30 @@ restock_bread:
     mov ah, 09h
     lea dx, RestockIDMsg
     int 21h
-
     lea dx, BIDInput
     mov ah, 0Ah
     int 21h
-
     mov al, BIDInput + 2
     sub al, '1'
     cmp al, 7
     jna valid_id_restock
     jmp invalid_input
+    
 valid_id_restock:
     mov bl, al
-
     mov ah, 09h
     lea dx, RestockQtyMsg
     int 21h
-
     lea dx, QtyInput
     mov ah, 0Ah
     int 21h
-
     call parse_quantity
-
     mov si, offset Stock
     add si, bx
     add [si], al
-
     mov ah, 09h
     lea dx, RestockOK
     int 21h
-
     call wait_for_enter
     jmp SHOW_MENU
 
@@ -314,6 +280,7 @@ EXIT:
     mov ah, 4Ch
     int 21h
 
+; Helper functions
 print_quantity:
     mov ah, 0
     mov bl, 10
@@ -331,11 +298,9 @@ wait_for_enter:
     mov ah, 09h
     lea dx, Pause
     int 21h
-
     lea dx, PauseBuf
     mov ah, 0Ah
     int 21h
-
     mov ah, 02h
     mov dl, 13
     int 21h
@@ -348,7 +313,6 @@ parse_quantity:
     mov cl, [si+1]
     cmp cl, 1
     je .one_digit
-
     mov ah, [si+2]
     sub ah, '0'
     mov al, 10
@@ -365,6 +329,7 @@ parse_quantity:
 
 strip_cr:
     mov cx, 0
+    
 .next:
     mov bx, si
     add bx, cx
@@ -375,6 +340,7 @@ strip_cr:
     je .done
     inc cx
     jmp .next
+    
 .strip:
     mov bx, si
     add bx, cx
@@ -393,11 +359,50 @@ strcmp_nullterm:
     inc si
     inc di
     jmp .loop
+    
 .notequal:
     mov ax, 1
     ret
 .equal:
     xor ax, ax
+    ret
+
+read_password:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, offset PassInput
+    mov cx, 0
+    
+.read_loop:
+    mov ah, 08h
+    int 21h
+    cmp al, 13
+    je .passdone
+    cmp cx, 16
+    jae .read_loop
+    mov [si], al
+    inc si
+    inc cx
+    mov ah, 02h
+    mov dl, '*'
+    int 21h
+    jmp .read_loop
+    
+.passdone:
+    mov byte ptr [si], 0
+    mov ah, 02h
+    mov dl, 13
+    int 21h
+    mov dl, 10
+    int 21h
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
     
 write_line:
@@ -406,9 +411,9 @@ write_line:
     push dx
     push si
     push di
-
     mov si, dx
     xor cx, cx
+    
 .count_loop:
     mov bx, cx
     add bx, si
@@ -417,12 +422,12 @@ write_line:
     je .done_count
     inc cx
     jmp .count_loop
+    
 .done_count:
     mov dx, si
     mov bx, fileHandle
     mov ah, 40h
     int 21h
-
     pop di
     pop si
     pop dx
@@ -449,43 +454,38 @@ create_receipt:
     mov bl, al
     mov si, offset BreadNames
     xor cl, cl
+    
 get_name:
     lodsw
     cmp cl, bl
     je write_bread
     inc cl
     jmp get_name
+    
 write_bread:
     mov dx, ax
     call write_line
-
     lea dx, qtyLabel
     call write_line
-
     mov bx, fileHandle
     lea dx, QtyInput + 2
     mov cx, 2
     mov ah, 40h
     int 21h
-
     lea dx, newline
     mov cx, 2
     mov ah, 40h
     int 21h
-
     lea dx, receiptTotal
     call write_line
-
     lea dx, SaleTotalBuf
     mov cx, 2
     mov ah, 40h
     int 21h
-
     lea dx, newline
     mov cx, 2
     mov ah, 40h
     int 21h
-
     mov ah, 3Eh
     mov bx, fileHandle
     int 21h
